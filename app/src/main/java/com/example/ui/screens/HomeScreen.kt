@@ -54,19 +54,25 @@ fun HomeScreen(
     LaunchedEffect(key1 = true) {
         // Auto-paste logic if enabled
         if (viewModel.settingsAutoPaste.value) {
-            val clipData = clipboardManager.primaryClip
-            if (clipData != null && clipData.itemCount > 0) {
-                val clipText = clipData.getItemAt(0).text?.toString() ?: ""
-                val isSocialUrl = clipText.contains("tiktok.com") || 
-                                  clipText.contains("instagram.com") || 
-                                  clipText.contains("twitter.com") || 
-                                  clipText.contains("x.com") || 
-                                  clipText.contains("facebook.com")
-                
-                if (isSocialUrl && clipText != inputUrl) {
-                    viewModel.onUrlInputChanged(clipText)
-                    Toast.makeText(context, "URL detected on clipboard & pasted!", Toast.LENGTH_SHORT).show()
+            try {
+                if (clipboardManager.hasPrimaryClip()) {
+                    val clipData = clipboardManager.primaryClip
+                    if (clipData != null && clipData.itemCount > 0) {
+                        val clipText = clipData.getItemAt(0).text?.toString() ?: ""
+                        val isSocialUrl = clipText.contains("tiktok.com") || 
+                                          clipText.contains("instagram.com") || 
+                                          clipText.contains("twitter.com") || 
+                                          clipText.contains("x.com") || 
+                                          clipText.contains("facebook.com")
+                        
+                        if (isSocialUrl && clipText != inputUrl) {
+                            viewModel.onUrlInputChanged(clipText)
+                            Toast.makeText(context, "URL detected on clipboard & pasted!", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }
@@ -119,17 +125,26 @@ fun HomeScreen(
                                 }
                                 IconButton(
                                     onClick = {
-                                        val clipData = clipboardManager.primaryClip
-                                        if (clipData != null && clipData.itemCount > 0) {
-                                            val text = clipData.getItemAt(0).text?.toString() ?: ""
-                                            if (text.isNotBlank()) {
-                                                viewModel.onUrlInputChanged(text)
-                                                Toast.makeText(context, "Clipboard contents pasted", Toast.LENGTH_SHORT).show()
+                                        try {
+                                            if (clipboardManager.hasPrimaryClip()) {
+                                                val clipData = clipboardManager.primaryClip
+                                                if (clipData != null && clipData.itemCount > 0) {
+                                                    val text = clipData.getItemAt(0).text?.toString() ?: ""
+                                                    if (text.isNotBlank()) {
+                                                        viewModel.onUrlInputChanged(text)
+                                                        Toast.makeText(context, "Clipboard contents pasted", Toast.LENGTH_SHORT).show()
+                                                    } else {
+                                                        Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                } else {
+                                                    Toast.makeText(context, "No clipboard data available", Toast.LENGTH_SHORT).show()
+                                                }
                                             } else {
                                                 Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
                                             }
-                                        } else {
-                                            Toast.makeText(context, "No clipboard data available", Toast.LENGTH_SHORT).show()
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                            Toast.makeText(context, "Failed to read clipboard: ${e.message}", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 ) {
