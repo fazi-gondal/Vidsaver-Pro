@@ -11,6 +11,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import org.json.JSONObject
+import org.json.JSONArray
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.io.File
@@ -30,6 +37,11 @@ class DownloadRepository(
 
     private val downloadJobs = mutableMapOf<String, Job>()
     private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
 
     // OkHttp/Retrofit client cached on demand
     private fun getRetrofitClient(baseUrl: String): VidSaverApi {
@@ -56,6 +68,19 @@ class DownloadRepository(
         }
 
         val platform = detectPlatform(trimmedUrl)
+
+        // Use custom platform specific APIs if matched
+        if (platform == "TIKTOK") {
+            val resolved = resolveTikTokUrl(trimmedUrl)
+            if (resolved != null) {
+                return@withContext Result.success(resolved)
+            }
+        } else if (platform == "INSTAGRAM") {
+            val resolved = resolveInstagramUrl(trimmedUrl)
+            if (resolved != null) {
+                return@withContext Result.success(resolved)
+            }
+        }
         
         // Try calling the custom backend API if supplied
         if (!customBaseUrl.isNullOrBlank()) {
@@ -352,5 +377,259 @@ class DownloadRepository(
             file.writeText("VidSaver Premium Media Mock File: $title of extension: $extension")
         }
         return file.absolutePath
+    }
+
+    private suspend fun resolveTikTokUrl(url: String): ResolvedVideoInfo? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val encodedUrl = java.net.URLEncoder.encode(url, "UTF-8")
+                // User literal: https://www.tikwm.com/api/?url=${url}?hd=1
+                // We will build: https://www.tikwm.com/api/?url=encodedUrl&hd=1 and we will also handle url?hd=1 just in case
+                val requestUrl = "https://www.tikwm.com/api/?url=$encodedUrl&hd=1"
+                
+                val request = Request.Builder()
+                    .url(requestUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .get()
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@withContext null
+                    val bodyString = response.body?.string() ?: return@withContext null
+                    
+                    val json = JSONObject(bodyString)
+                    val code = json.optInt("code", -1)
+                    if (code == 0) {
+                        val dataObj = json.optJSONObject("data") ?: return@withContext null
+                        
+                        val videoId = dataObj.optString("id", "")
+                        val title = dataObj.optString("title", "").ifBlank { "TikTok Video $videoId" }
+                        val coverUrl = dataObj.optString("cover", "https://images.unsplash.com/photo-1542204172-e7052809a8a7?q=80&w=600&auto=format&fit=crop")
+                        val duration = dataObj.optLong("duration", 0L)
+                        
+                        // Author
+                        val authorObj = dataObj.optJSONObject("author")
+                        val creatorName = if (authorObj != null) {
+                            val uniqueId = authorObj.optString("unique_id", "")
+                            if (uniqueId.isNotEmpty()) "@$uniqueId" else authorObj.optString("nickname", "@creator")
+                        } else {
+                            "@creator"
+                        }
+
+                        // URLs
+                        val playUrl = dataObj.optString("play", "")
+                        val hdPlayUrl = dataObj.optString("hdplay", playUrl)
+                        val musicUrl = dataObj.optString("music", "")
+
+                        val formats = mutableListOf<MediaFormat>()
+                        if (hdPlayUrl.isNotEmpty()) {
+                            formats.add(
+                                MediaFormat(
+                                    id = "fmt_tiktok_hd",
+                                    qualityLabel = "HD 1080p [No Watermark]",
+                                    extension = "mp4",
+                                    sizeBytes = 15 * 1024 * 1024L,
+                                    downloadUrl = hdPlayUrl
+                                )
+                            )
+                        }
+                        if (playUrl.isNotEmpty()) {
+                            formats.add(
+                                MediaFormat(
+                                    id = "fmt_tiktok_sd",
+                                    qualityLabel = "SD 720p [Watermark-free]",
+                                    extension = "mp4",
+                                    sizeBytes = 8 * 1024 * 1024L,
+                                    downloadUrl = playUrl
+                                )
+                            )
+                        }
+                        if (musicUrl.isNotEmpty()) {
+                            formats.add(
+                                MediaFormat(
+                                    id = "fmt_tiktok_mp3",
+                                    qualityLabel = "Audio Extraction [MP3]",
+                                    extension = "mp3",
+                                    sizeBytes = (duration.coerceAtLeast(1) * 40 * 1024),
+                                    downloadUrl = musicUrl
+                                )
+                            )
+                        }
+
+                        if (formats.isNotEmpty()) {
+                            return@withContext ResolvedVideoInfo(
+                                title = title,
+                                platform = "TIKTOK",
+                                originalUrl = url,
+                                thumbnailUrl = coverUrl,
+                                durationSeconds = duration,
+                                authorName = creatorName,
+                                formats = formats
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            null
+        }
+    }
+
+    private suspend fun resolveInstagramUrl(url: String): ResolvedVideoInfo? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val jsonBody = JSONObject().apply {
+                    put("url", url)
+                }
+                val requestBody = jsonBody.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                val request = Request.Builder()
+                    .url("https://fastapi-u8bm.onrender.com/api/metadata")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .post(requestBody)
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@withContext null
+                    val bodyString = response.body?.string() ?: return@withContext null
+                    
+                    val json = JSONObject(bodyString)
+                    
+                    val title = json.optString("title", "").ifBlank {
+                        json.optString("description", "").take(50).ifBlank { "Instagram Video" }
+                    }
+                    
+                    var thumbnailUrl = json.optString("thumbnail", "")
+                    if (thumbnailUrl.isEmpty()) {
+                        thumbnailUrl = json.optString("thumbnail_url", "")
+                    }
+                    if (thumbnailUrl.isEmpty()) {
+                        thumbnailUrl = json.optString("cover", "")
+                    }
+                    if (thumbnailUrl.isEmpty()) {
+                        thumbnailUrl = json.optString("cover_url", "https://images.unsplash.com/photo-1542204172-e7052809a8a7?q=80&w=600&auto=format&fit=crop")
+                    }
+                    
+                    val duration = json.optLong("duration", Random.nextLong(15, 60))
+                    
+                    var author = json.optString("uploader", "")
+                    if (author.isEmpty()) {
+                        author = json.optString("author", "")
+                    }
+                    if (author.isEmpty()) {
+                        author = json.optString("author_name", "@instagram_user")
+                    }
+
+                    var videoUrl = json.optString("url", "")
+                    if (videoUrl.isEmpty()) {
+                        videoUrl = json.optString("direct_url", "")
+                    }
+                    if (videoUrl.isEmpty()) {
+                        videoUrl = json.optString("download_url", "")
+                    }
+                    if (videoUrl.isEmpty()) {
+                        videoUrl = json.optString("video_url", "")
+                    }
+
+                    if (videoUrl.isEmpty()) {
+                        val directUrlResolved = fetchDirectUrl(url)
+                        if (directUrlResolved != null) {
+                            videoUrl = directUrlResolved
+                        }
+                    }
+
+                    val formats = mutableListOf<MediaFormat>()
+                    if (videoUrl.isNotEmpty()) {
+                        val formatsArray = json.optJSONArray("formats")
+                        if (formatsArray != null && formatsArray.length() > 0) {
+                            for (i in 0 until formatsArray.length()) {
+                                val fmtObj = formatsArray.optJSONObject(i) ?: continue
+                                val fmtUrl = fmtObj.optString("url", "")
+                                if (fmtUrl.isNotEmpty()) {
+                                    val fmtId = fmtObj.optString("format_id", "fmt_ig_$i")
+                                    val quality = fmtObj.optString("format_note", "").ifBlank {
+                                        fmtObj.optString("quality", "Standard")
+                                    }
+                                    val ext = fmtObj.optString("ext", "mp4")
+                                    val size = fmtObj.optLong("filesize", 12 * 1024 * 1024L)
+                                    formats.add(
+                                        MediaFormat(
+                                            id = fmtId,
+                                            qualityLabel = "Quality: $quality ($ext)",
+                                            extension = ext,
+                                            sizeBytes = size,
+                                            downloadUrl = fmtUrl
+                                        )
+                                    )
+                                }
+                            }
+                        }
+
+                        if (formats.isEmpty()) {
+                            formats.add(
+                                MediaFormat(
+                                    id = "fmt_instagram_hd",
+                                    qualityLabel = "HD 1080p [MP4 Direct]",
+                                    extension = "mp4",
+                                    sizeBytes = 18 * 1024 * 1024L,
+                                    downloadUrl = videoUrl
+                                )
+                            )
+                            formats.add(
+                                MediaFormat(
+                                    id = "fmt_instagram_sd",
+                                    qualityLabel = "SD 720p [MP4 Compressed]",
+                                    extension = "mp4",
+                                    sizeBytes = 10 * 1024 * 1024L,
+                                    downloadUrl = videoUrl
+                                )
+                            )
+                        }
+                    }
+
+                    if (formats.isNotEmpty()) {
+                        return@withContext ResolvedVideoInfo(
+                            title = title,
+                            platform = "INSTAGRAM",
+                            originalUrl = url,
+                            thumbnailUrl = thumbnailUrl,
+                            durationSeconds = duration,
+                            authorName = author,
+                            formats = formats
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            null
+        }
+    }
+
+    private suspend fun fetchDirectUrl(url: String): String? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val jsonBody = JSONObject().apply {
+                    put("url", url)
+                }
+                val requestBody = jsonBody.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                val request = Request.Builder()
+                    .url("https://fastapi-u8bm.onrender.com/api/get-direct-url")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .post(requestBody)
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@withContext null
+                    val bodyString = response.body?.string() ?: return@withContext null
+                    val json = JSONObject(bodyString)
+                    val directUrl = json.optString("direct_url", "")
+                    if (directUrl.isNotEmpty()) directUrl else null
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
+            }
+        }
     }
 }
