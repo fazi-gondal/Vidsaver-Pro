@@ -14,11 +14,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Downloading
 import androidx.compose.material.icons.filled.FolderSpecial
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Downloading
 import androidx.compose.material.icons.outlined.FolderSpecial
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,7 +34,6 @@ import com.example.repository.DownloadRepository
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.QueueScreen
-import com.example.ui.screens.SettingsScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.VidSaverViewModel
 import com.example.viewmodel.VidSaverViewModelFactory
@@ -79,8 +76,7 @@ class MainActivity : ComponentActivity() {
                         val tabs = listOf(
                             TabDetails("Downloader", Icons.Filled.CloudDownload, Icons.Outlined.CloudDownload),
                             TabDetails("Queue", Icons.Filled.Downloading, Icons.Outlined.Downloading),
-                            TabDetails("Library", Icons.Filled.FolderSpecial, Icons.Outlined.FolderSpecial),
-                            TabDetails("Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
+                            TabDetails("Library", Icons.Filled.FolderSpecial, Icons.Outlined.FolderSpecial)
                         )
 
                         Scaffold(
@@ -116,10 +112,6 @@ class MainActivity : ComponentActivity() {
                                     modifier = modifier
                                 )
                                 2 -> HistoryScreen(
-                                    viewModel = viewModel,
-                                    modifier = modifier
-                                )
-                                3 -> SettingsScreen(
                                     viewModel = viewModel,
                                     modifier = modifier
                                 )

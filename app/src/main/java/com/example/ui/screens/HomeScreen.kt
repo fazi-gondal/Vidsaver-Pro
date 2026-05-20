@@ -46,14 +46,18 @@ fun HomeScreen(
     val resolvedInfo by viewModel.resolvedVideoInfo.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
 
-    // Clipboard fetch helper
+    // Clipboard fetch helper safely retrieved
     val clipboardManager = remember {
-        context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        try {
+            context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        } catch (e: Exception) {
+            null
+        }
     }
 
     LaunchedEffect(key1 = true) {
         // Auto-paste logic if enabled
-        if (viewModel.settingsAutoPaste.value) {
+        if (viewModel.settingsAutoPaste.value && clipboardManager != null) {
             try {
                 if (clipboardManager.hasPrimaryClip()) {
                     val clipData = clipboardManager.primaryClip
@@ -126,7 +130,7 @@ fun HomeScreen(
                                 IconButton(
                                     onClick = {
                                         try {
-                                            if (clipboardManager.hasPrimaryClip()) {
+                                            if (clipboardManager != null && clipboardManager.hasPrimaryClip()) {
                                                 val clipData = clipboardManager.primaryClip
                                                 if (clipData != null && clipData.itemCount > 0) {
                                                     val text = clipData.getItemAt(0).text?.toString() ?: ""
@@ -140,7 +144,7 @@ fun HomeScreen(
                                                     Toast.makeText(context, "No clipboard data available", Toast.LENGTH_SHORT).show()
                                                 }
                                             } else {
-                                                Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, "Clipboard is empty or unsupported", Toast.LENGTH_SHORT).show()
                                             }
                                         } catch (e: Exception) {
                                             e.printStackTrace()
@@ -251,6 +255,33 @@ fun HomeScreen(
                     onNavigateToQueue()
                 }
                 Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(32.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "VidSaver for Android v1.1.0",
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "Made with ❤️ by Fazi Gondal",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        fontSize = 11.sp
+                    )
+                }
             }
         }
     }

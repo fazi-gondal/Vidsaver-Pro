@@ -1,6 +1,10 @@
 package com.example.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -610,6 +614,36 @@ fun VideoPlayerPreviewDialog(
                     }
                 }
 
+                // Interactive Action Buttons Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val context = LocalContext.current
+                    Button(
+                        onClick = { openMediaFile(context, log) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = platformColor),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Open Media", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(
+                        onClick = { shareMediaFile(context, log) },
+                        modifier = Modifier.weight(1f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.Gray),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                    ) {
+                        Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Share", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
                 // File path detail
                 Text(
                     text = "Offline save: ${log.filePath.substringAfterLast("/")}",
@@ -620,5 +654,60 @@ fun VideoPlayerPreviewDialog(
                 )
             }
         }
+    }
+}
+
+fun openMediaFile(context: Context, log: DownloadLog) {
+    try {
+        val uri = if (log.filePath.startsWith("content://")) {
+            Uri.parse(log.filePath)
+        } else {
+            val file = File(log.filePath)
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+        }
+
+        val isAudio = log.filePath.contains(".mp3")
+        val mimeType = if (isAudio) "audio/*" else "video/*"
+
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mimeType)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "Play media with"))
+    } catch (e: Exception) {
+        Toast.makeText(context, "No app available to play this file: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+    }
+}
+
+fun shareMediaFile(context: Context, log: DownloadLog) {
+    try {
+        val uri = if (log.filePath.startsWith("content://")) {
+            Uri.parse(log.filePath)
+        } else {
+            val file = File(log.filePath)
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+        }
+
+        val isAudio = log.filePath.contains(".mp3")
+        val mimeType = if (isAudio) "audio/mpeg" else "video/mp4"
+
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, log.title)
+            putExtra(Intent.EXTRA_TEXT, "Downloaded via VidSaver: ${log.title}")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "Share media via"))
+    } catch (e: Exception) {
+        Toast.makeText(context, "Unable to share file: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
     }
 }
