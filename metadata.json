@@ -1,0 +1,6 @@
+{
+  "name": "VidSaver",
+  "description": "A premium and feature-packed social media video downloader for platforms like TikTok, Instagram, Twitter, and Facebook.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
